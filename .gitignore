@@ -1,0 +1,38 @@
+# ── 密钥与环境配置（.env.local 含真实 API Key，永不入库；用 .env.example 作模板）──
+.env
+.env.local
+.env.*.local
+*.secret
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ── 模型权重（单文件 >100MB 超出 GitHub 限制，按 README 指引另行下载）──
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+*.gguf
+
+# ── 运行时数据 / 日志 ──
+logs/
+*.log
+volumes/
+tmp_trainer/
+
+# ── 机密资料：内部配方、访谈提记等（物理隔离，不上传任何远端）──
+docs/
+
+# ── 工具/Agent 工作目录 ──
+.trae/
+.workbuddy/
+
+# ── 系统杂项 ──
+.DS_Store
+Thumbs.db
+desktop.ini

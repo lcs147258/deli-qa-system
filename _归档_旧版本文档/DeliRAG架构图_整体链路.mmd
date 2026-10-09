@@ -1,0 +1,85 @@
+%%{init: {'theme':'base', 'themeVariables': {'fontSize':'15px', 'fontFamily':'Microsoft YaHei, PingFang SC, sans-serif', 'lineColor':'#546e7a'}}}%%
+flowchart TD
+    U(["用户 / 浏览器"])
+
+    subgraph L1["接入层"]
+        direction LR
+        API["FastAPI + Uvicorn<br/>app.py / new_main.py<br/>IntegratedQASystem · 端口 8082"]
+        HIS["会话历史<br/>最近 5 轮"]
+        STR["流式输出<br/>start / token / end"]
+    end
+
+    U -->|"HTTP + WebSocket :8082"| API
+
+    subgraph L2["通道①  FAQ 通道 · 热路径"]
+        direction TB
+        FAQ["BM25Search<br/>jieba 分词（含熟食领域词）→ BM25Okapi"]
+        RDS["Redis 7 缓存<br/>deli: 前缀 · 与教育版隔离"]
+        DB["MySQL 8.0.36 · deli_qa.faq<br/>56 条熟食问答对"]
+        FAQ --> RDS
+        RDS -->|"未命中"| DB
+        DB -.->|"懒加载后回填"| RDS
+    end
+
+    API --> FAQ
+    FAQ --> TH{"score ≥ 0.85 ?"}
+    TH -->|"命中"| HIT(["直接返回 FAQ 答案<br/>零大模型调用 · 实测 0.03s"])
+
+    subgraph L3["通道②  RAG 通道 · 冷路径"]
+        direction TB
+        INTENT["① BERT 意图分类<br/>bert_query_classifier<br/>571 条熟食语料重训 · 验证集 0.96"]
+        KIND{"通用知识<br/>还是专业咨询 ?"}
+        NORAG(["跳过检索<br/>直接调用大模型"])
+        SEL["② 策略选择 StrategySelector<br/>qwen3.7-plus · temperature 0.1"]
+
+        subgraph L3B["③ 四种检索策略"]
+            direction LR
+            P1["直接检索"]
+            P2["HyDE<br/>假设答案"]
+            P3["子查询"]
+            P4["回溯问题"]
+        end
+
+        VEC["④ 混合检索 hybrid_search_with_rerank<br/>BGE-M3 稠密 1024 维 + 稀疏 250002 维<br/>WeightedRanker  稠密 1.0 / 稀疏 0.7"]
+        CTX["⑤ 上下文拼接 + RAGPrompts<br/>截取 CANDIDATE_M 个文档"]
+        LLM(["⑥ qwen3.7-plus 生成<br/>DashScope · OpenAI SDK"])
+
+        INTENT --> KIND
+        KIND -->|"通用知识"| NORAG
+        KIND -->|"专业咨询"| SEL
+        SEL --> P1
+        SEL --> P2
+        SEL --> P3
+        SEL --> P4
+        P1 --> VEC
+        P2 --> VEC
+        P3 --> VEC
+        P4 --> VEC
+        VEC --> CTX
+        CTX --> LLM
+    end
+
+    TH -->|"未命中"| INTENT
+
+    subgraph L4["离线支撑层  ·  离线建库，在线检索"]
+        direction LR
+        ING["知识文档 ×4 份<br/>产品手册 / 国标整理稿×2 / 操作规范<br/>父子分块 1200 / 300 / 50"] --> MS["向量入库<br/>Milvus 2.5.4 · deli 库<br/>collection: deli_final · 36 子块"]
+        SUP["RAGAS 四指标评估<br/>precision 0.933 · recall 0.800<br/>faithfulness 0.803 · relevancy 0.796"]
+        GOV["数据合规<br/>内部配方不入库 · 保质期[估]标注<br/>FAQ 来源台账"]
+    end
+
+    LLM ~~~ ING
+
+    classDef entry fill:#ffe0b2,stroke:#e65100,stroke-width:2px,color:#000
+    classDef api fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef faq fill:#dcedc8,stroke:#558b2f,stroke-width:2px,color:#000
+    classDef rag fill:#bbdefb,stroke:#1565c0,stroke-width:2px,color:#000
+    classDef out fill:#fff9c4,stroke:#f9a825,stroke-width:2px,color:#000
+    classDef sup fill:#e1bee7,stroke:#6a1b9a,stroke-width:1.5px,color:#000
+
+    class U entry
+    class API,HIS,STR api
+    class FAQ,RDS,DB faq
+    class INTENT,KIND,SEL,P1,P2,P3,P4,VEC,CTX rag
+    class HIT,NORAG,LLM out
+    class ING,MS,SUP,GOV sup

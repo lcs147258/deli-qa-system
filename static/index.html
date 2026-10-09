@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卤智深 · 熟食知识问答｜博研御膳</title>
+    <!-- marked.js: 渲染回答里的 Markdown（功能依赖，保留） -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        /* ============================================================
+           设计令牌 —— 中式现代 · 红黑米白
+           详见 docs/DESIGN-SPEC.md 与 docs/REJECT-LIST.md
+           禁止: 渐变 / 发光 / 大圆角 / 阴影 / 毛玻璃 / 花哨动效
+           ============================================================ */
+        :root {
+            --paper: #FBF8F3;        /* 页面底色：暖米白 */
+            --surface: #FFFFFF;      /* 卡片 / 输入框 */
+            --ink: #17140F;          /* 正文墨色 */
+            --ink-2: #6E6459;        /* 次要文字 */
+            --line: #E7DFD3;         /* 1px 分隔线 */
+            --red: #A3271C;          /* 朱红：只做强调，面积 <10% */
+            --red-deep: #7E1D14;     /* 朱红悬停 */
+            --red-wash: #F6EBE8;     /* 极淡红底 */
+            --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+            --sans: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+        }
+        /* 夜间（墨色夜览）：同一套令牌换值，不做"又一个主题" */
+        body.night {
+            --paper: #14110E;
+            --surface: #1C1814;
+            --ink: #F2EDE4;
+            --ink-2: #A79C8C;
+            --line: #2E2822;
+            --red: #C7453A;
+            --red-deep: #A3271C;
+            --red-wash: #2A1D1A;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--sans);
+            font-size: 15px;
+            line-height: 1.75;
+            color: var(--ink);
+            background: var(--paper);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── 顶栏：左字标，右工具。1px 底线，无阴影 ── */
+        header {
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            height: 64px;
+            padding: 0 1.25rem;
+            border-bottom: 1px solid var(--line);
+            background: var(--paper);
+            flex: none;
+        }
+        .brand { display: flex; align-items: baseline; gap: .75rem; }
+        .brand .name {
+            font-family: var(--serif);
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: .18em;
+            color: var(--ink);
+        }
+        .brand .sub { font-size: 12px; color: var(--ink-2); letter-spacing: .08em; }
+        .brand .rule { width: 14px; height: 2px; background: var(--red); align-self: center; }
+
+        .header-tools { margin-left: auto; display: flex; align-items: center; gap: 1rem; }
+        .header-tools label { font-size: 12px; color: var(--ink-2); }
+        .corp-tag {
+            font-family: var(--serif);
+            font-size: 13px;
+            letter-spacing: .28em;
+            color: var(--ink-2);
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            padding: 3px 10px 3px 13px;
+            white-space: nowrap;
+        }
+        select, .ghost-btn {
+            font-family: var(--sans);
+            font-size: 13px;
+            color: var(--ink);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            padding: 5px 8px;
+            cursor: pointer;
+            transition: border-color .12s, color .12s, background .12s;
+        }
+        select:focus, .ghost-btn:focus { outline: none; border-color: var(--red); }
+        .ghost-btn:hover { color: var(--red); border-color: var(--red); }
+
+        /* ── 主体两栏 ── */
+        .container {
+            flex: 1;
+            display: flex;
+            gap: 0;
+            max-width: 1152px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 0 1.25rem;
+            min-height: 0;              /* 让内部滚动生效 */
+        }
+
+        /* 侧栏：会话。仅保留功能，靠细线分隔，无卡片 */
+        .sidebar {
+            width: 250px;
+            flex: none;
+            border-right: 1px solid var(--line);
+            padding: 1rem 1rem 1rem 0;
+            display: flex;
+            flex-direction: column;
+            gap: .75rem;
+            min-height: 0;
+        }
+        .search-box {
+            width: 100%;
+            font-family: var(--sans);
+            font-size: 13px;
+            color: var(--ink);
+            background: transparent;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            padding: 6px 8px;
+            transition: border-color .12s;
+        }
+        .search-box::placeholder { color: var(--ink-2); }
+        .search-box:focus { outline: none; border-color: var(--red); }
+
+        .session-controls { display: flex; gap: .5rem; }
+        .session-controls .ghost-btn { flex: 1; text-align: center; }
+        .session-controls .primary { color: var(--red); border-color: var(--red); }
+        .session-controls .primary:hover { background: var(--red); color: #fff; }
+
+        .history-title {
+            font-size: 11px;
+            letter-spacing: .22em;
+            color: var(--ink-2);
+            padding-bottom: .5rem;
+            border-bottom: 1px solid var(--line);
+        }
+        .history-list { flex: 1; overflow-y: auto; min-height: 0; }
+        .history-item {
+            padding: .6rem .25rem;
+            border-bottom: 1px solid var(--line);
+            cursor: pointer;
+            transition: background .12s;
+        }
+        .history-item:hover { background: var(--red-wash); }
+        .history-question {
+            font-size: 13px;
+            color: var(--ink);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .history-answer {
+            font-size: 12px; color: var(--ink-2);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .session-info {
+            font-size: 11px; color: var(--ink-2);
+            padding-top: .6rem; border-top: 1px solid var(--line);
+        }
+
+        /* 主区 */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            position: relative;
+        }
+
+        /* ── 欢迎态：可下滑的品牌落地页（酱牛腱 3D + 品牌矩阵）── */
+        .welcome {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .hero-scroll { flex: 1; overflow-y: auto; min-height: 0; scroll-behavior: smooth; }
+
+        /* 第一屏：sticky 舞台，酱牛腱漂浮，下滑时旋转 90° 露出横截面 */
+        .hero-sticky { position: relative; height: 170vh; }
+        .beef-stage {
+            position: sticky;
+            top: 0;
+            height: calc(100% / 1.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .hero-caption {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding-top: 2.2rem;
+            text-align: center;
+            pointer-events: none;
+        }
+        .hero-caption .eyebrow {
+            font-size: 12px; letter-spacing: .34em; color: var(--ink-2);
+        }
+        .hero-caption .hero-name {
+            font-family: var(--serif);
+            font-size: 44px; font-weight: 700; letter-spacing: .3em;
+            color: var(--ink); margin-top: .35rem;
+        }
+        .hero-caption .hero-sub {
+            font-size: 13px; color: var(--ink-2); letter-spacing: .14em; margin-top: .3rem;
+        }
+        .scroll-hint {
+            position: absolute;
+            bottom: 1.4rem; left: 0; right: 0;
+            text-align: center; font-size: 12px; letter-spacing: .2em; color: var(--ink-2);
+        }
+
+        /* 3D 酱牛腱：整根（正面）+ 横截面（端面），绕 Y 轴转 90° */
+        .beef-float { animation: beefFloat 4.2s ease-in-out infinite; will-change: transform; }
+        @keyframes beefFloat {
+            0%, 100% { transform: translateY(-7px); }
+            50%      { transform: translateY(7px); }
+        }
+        .beef-3d { transform-style: preserve-3d; }
+        .beef-face { position: absolute; inset: 0; backface-visibility: hidden; }
+        .beef-face svg { width: 100%; height: 100%; display: block; }
+        .beef-front { transform: translateZ(70px); }
+        .beef-cut   { transform: rotateY(90deg) translateZ(120px); }
+        @media (prefers-reduced-motion: reduce) {
+            .beef-float { animation: none; }
+            .hero-scroll { scroll-behavior: auto; }
+        }
+
+        /* 第二屏：品牌矩阵 */
+        .brand-panel {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: .5rem 1.25rem 2.2rem;
+            text-align: center;
+        }
+        .panel-title {
+            font-family: var(--serif);
+            font-size: 22px; letter-spacing: .24em; color: var(--ink);
+        }
+        .panel-rule { width: 40px; height: 2px; background: var(--red); margin: .7rem auto 1.4rem; }
+        .brand-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; text-align: left; }
+        .brand-card {
+            border: 1px solid var(--line);
+            border-left: 2px solid var(--line);
+            border-radius: 0 2px 2px 0;
+            background: var(--surface);
+            padding: .9rem 1.05rem;
+        }
+        .brand-card.hero-brand { border-left-color: var(--red); }
+        .brand-card .bc-head { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+        .brand-card .bc-name { font-family: var(--serif); font-size: 18px; font-weight: 700; letter-spacing: .14em; }
+        .brand-card .bc-badge {
+            font-size: 11px; color: var(--red); border: 1px solid var(--red);
+            border-radius: 2px; padding: 0 6px; letter-spacing: .08em;
+        }
+        .brand-card .bc-meta { font-size: 12px; color: var(--ink-2); margin-top: .35rem; line-height: 1.6; }
+        .brand-stats {
+            display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; justify-content: center;
+            margin: 1.3rem 0 .4rem; font-size: 13px; color: var(--ink-2);
+        }
+        .brand-stats b { color: var(--ink); font-weight: 700; }
+        .quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .6rem;
+            justify-content: center;
+            margin-top: 1.3rem;
+        }
+        .quick-reply-btn {
+            font-family: var(--sans);
+            font-size: 13px;
+            color: var(--ink);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            padding: 8px 14px;
+            cursor: pointer;
+            transition: border-color .12s, color .12s, background .12s;
+        }
+        .quick-reply-btn:hover { border-color: var(--red); color: var(--red); background: var(--red-wash); }
+
+        /* ── 对话区 ── */
+        .chat-history {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem .25rem;
+            min-height: 0;
+            display: none;               /* 欢迎态时隐藏 */
+        }
+        .chat-history.active { display: block; }
+
+        .message { margin-bottom: 1.5rem; }
+        .message-header {
+            font-size: 11px;
+            letter-spacing: .22em;
+            color: var(--ink-2);
+            margin-bottom: .35rem;
+        }
+        .message-header .marker { color: var(--red); font-weight: 700; margin-right: .4rem; }
+
+        /* 问句：右对齐纯文字，不做气泡 */
+        .user-message { text-align: right; }
+        .user-message .message-body {
+            display: inline-block;
+            text-align: left;
+            max-width: 78%;
+            color: var(--ink);
+            font-weight: 500;
+        }
+
+        /* 答句：白卡 + 1px 描边 + 2px 朱红左竖线（克制的编辑感） */
+        .system-message .message-body {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-left: 2px solid var(--red);
+            border-radius: 0 2px 2px 0;
+            padding: .85rem 1.1rem;
+            max-width: 86%;
+            word-break: break-word;
+        }
+        .system-message .message-body p { margin: .35rem 0; }
+        .system-message .message-body ul, .system-message .message-body ol { padding-left: 1.4rem; margin: .35rem 0; }
+        .system-message .message-body strong { font-weight: 700; }
+        .system-message .message-body code {
+            font-family: "Cascadia Mono", Consolas, monospace;
+            font-size: 13px;
+            background: var(--paper);
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            padding: 0 4px;
+        }
+        .system-message .message-body pre {
+            background: var(--paper);
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            padding: .75rem;
+            overflow-x: auto;
+            margin: .5rem 0;
+        }
+        .system-message .message-body pre code { border: 0; background: none; padding: 0; }
+
+        /* 等待中：纯文字，不用动画圆点 */
+        .pending-line {
+            font-size: 13px;
+            color: var(--ink-2);
+            letter-spacing: .1em;
+            margin-bottom: 1.5rem;
+        }
+
+        /* ── 输入区 ── */
+        .chat-input-container {
+            flex: none;
+            border-top: 1px solid var(--line);
+            padding: .9rem .25rem 1rem;
+            background: var(--paper);
+        }
+        .input-group { display: flex; gap: .6rem; align-items: stretch; }
+        .chat-input {
+            flex: 1;
+            font-family: var(--sans);
+            font-size: 15px;
+            line-height: 1.5;
+            color: var(--ink);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            padding: .62rem .8rem;
+            height: 46px;
+            max-height: 140px;
+            resize: none;
+            overflow-y: hidden;          /* 单行时不显示滚动条（多行时由 JS 撑高，见 oninput） */
+            transition: border-color .12s;
+        }
+        .chat-input::placeholder { color: var(--ink-2); }
+        .chat-input:focus { outline: none; border-color: var(--red); }
+        .send-btn {
+            font-family: var(--sans);
+            font-size: 14px;
+            letter-spacing: .1em;
+            color: #fff;
+            background: var(--red);
+            border: 1px solid var(--red);
+            border-radius: 2px;
+            padding: 0 1.4rem;
+            cursor: pointer;
+            transition: background .12s;
+        }
+        .send-btn:hover { background: var(--red-deep); border-color: var(--red-deep); }
+        .send-btn:disabled { opacity: .45; cursor: not-allowed; }
+        .input-hint { font-size: 11px; color: var(--ink-2); margin-top: .45rem; letter-spacing: .06em; }
+
+        /* 加载遮罩：不透明薄纱 + 文字，无模糊无动画 */
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: color-mix(in srgb, var(--paper) 88%, transparent);
+            visibility: hidden;
+        }
+        .loading-overlay .loading-text {
+            font-size: 13px;
+            color: var(--ink-2);
+            letter-spacing: .22em;
+        }
+
+        /* ── 响应式：窄屏侧栏折叠到上方 ── */
+        @media (max-width: 768px) {
+            .container { flex-direction: column; padding: 0 .9rem; }
+            .sidebar {
+                width: 100%;
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+                padding: .9rem 0;
+                max-height: 180px;
+            }
+            .hero-caption .hero-name { font-size: 32px; }
+            #beef3d { width: 192px !important; height: 128px !important; }
+            .brand-grid { grid-template-columns: 1fr; }
+            .corp-tag { display: none; }
+            .system-message .message-body { max-width: 100%; }
+            .user-message .message-body { max-width: 92%; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶栏：左字标 / 右工具。禁渐变、禁阴影（见 REJECT-LIST） -->
+    <header>
+        <div class="brand">
+            <span class="rule"></span>
+            <span class="name">卤智深</span>
+            <span class="sub">熟食知识问答 · DELI KNOWLEDGE BASE</span>
+        </div>
+        <div class="header-tools">
+            <span class="corp-tag" title="公司主体">博研御膳</span>
+            <label for="sourceFilter">知识分类</label>
+            <select id="sourceFilter">
+                <option value="">全部</option>
+                <!-- 分类选项由 /api/sources 动态填充 -->
+            </select>
+            <button class="ghost-btn" id="themeToggle" type="button">夜间</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- 侧栏：会话功能（保留课程版全部能力，仅换视觉） -->
+        <aside class="sidebar">
+            <input type="text" class="search-box" id="searchBox" placeholder="搜索会话记录…">
+            <div class="session-controls">
+                <button class="ghost-btn primary" id="newSessionBtn" type="button">新会话</button>
+                <button class="ghost-btn" id="clearHistoryBtn" type="button">清空历史</button>
+            </div>
+            <div class="history-title">会 话</div>
+            <div class="history-list" id="historyList"><!-- 会话条目动态插入 --></div>
+            <div class="session-info" id="sessionInfo"></div>
+        </aside>
+
+        <section class="main-content">
+            <!-- 欢迎态：首次进入 / 清空历史后显示 -->
+            <div class="welcome" id="welcome">
+              <div class="hero-scroll" id="heroScroll">
+                <!-- 第一屏：漂浮的酱牛腱，下滑时旋转 90° 露出横截面 -->
+                <div class="hero-sticky">
+                  <div class="beef-stage">
+                    <div class="hero-caption" id="heroCaption">
+                      <div class="eyebrow">博 研 御 膳 · 旗 下 王 牌</div>
+                      <div class="hero-name">卤 智 深</div>
+                      <div class="hero-sub">核心产品酱牛腱 · 筋肉交错 · 老卤五香</div>
+                    </div>
+                    <div class="beef-float" id="beefFloat">
+                      <div class="beef-3d" id="beef3d" style="width:240px;height:160px;">
+                        <div class="beef-face beef-front">
+                          <!-- 整根酱牛腱（侧视） -->
+                          <svg viewBox="0 0 240 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="整根酱牛腱">
+                            <ellipse cx="120" cy="124" rx="92" ry="9" fill="#000" opacity="0.10"/>
+                            <rect x="18" y="46" width="206" height="68" rx="34" fill="#7d3422" stroke="#542112" stroke-width="3"/>
+                            <ellipse cx="24" cy="80" rx="10" ry="31" fill="#5f2818" stroke="#542112" stroke-width="2"/>
+                            <ellipse cx="118" cy="60" rx="78" ry="9" fill="#a4512f" opacity="0.55"/>
+                            <rect x="64" y="42" width="9" height="76" rx="3" fill="#e9dbbf" stroke="#cdb88f" stroke-width="1.5"/>
+                            <rect x="117" y="42" width="9" height="76" rx="3" fill="#e9dbbf" stroke="#cdb88f" stroke-width="1.5"/>
+                            <rect x="170" y="42" width="9" height="76" rx="3" fill="#e9dbbf" stroke="#cdb88f" stroke-width="1.5"/>
+                            <circle cx="68.5" cy="42" r="5" fill="#d8c6a2" stroke="#cdb88f" stroke-width="1.5"/>
+                            <circle cx="121.5" cy="42" r="5" fill="#d8c6a2" stroke="#cdb88f" stroke-width="1.5"/>
+                            <circle cx="174.5" cy="42" r="5" fill="#d8c6a2" stroke="#cdb88f" stroke-width="1.5"/>
+                            <ellipse cx="90" cy="98" rx="5" ry="2.6" fill="#e8d9b8"/>
+                            <ellipse cx="150" cy="102" rx="5" ry="2.6" fill="#e8d9b8"/>
+                            <ellipse cx="200" cy="96" rx="4.5" ry="2.4" fill="#e8d9b8"/>
+                          </svg>
+                        </div>
+                        <div class="beef-face beef-cut">
+                          <!-- 酱牛腱横截面：筋与肉交错 -->
+                          <svg viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="酱牛腱横截面">
+                            <circle cx="80" cy="80" r="74" fill="#4f1f12"/>
+                            <circle cx="80" cy="80" r="68" fill="#753020"/>
+                            <path d="M30 70 C52 40, 86 44, 104 58 C122 72, 128 96, 106 110 C84 124, 52 112, 40 92 C36 85, 34 78, 30 70 Z"
+                                  fill="none" stroke="#c8944f" stroke-width="9" stroke-linecap="round" opacity="0.92"/>
+                            <path d="M58 46 C74 66, 70 92, 58 116" fill="none" stroke="#d9a85f" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
+                            <path d="M104 44 C92 66, 96 92, 112 118" fill="none" stroke="#b37a3d" stroke-width="6.5" stroke-linecap="round" opacity="0.9"/>
+                            <path d="M40 84 C64 78, 96 80, 124 74" fill="none" stroke="#d9a85f" stroke-width="5" stroke-linecap="round" opacity="0.75"/>
+                            <path d="M46 104 C70 100, 96 104, 118 98" fill="none" stroke="#c8944f" stroke-width="4.5" stroke-linecap="round" opacity="0.8"/>
+                            <circle cx="66" cy="64" r="3.4" fill="#e3b577"/>
+                            <circle cx="98" cy="88" r="3" fill="#e3b577"/>
+                            <circle cx="74" cy="104" r="2.6" fill="#e3b577"/>
+                            <ellipse cx="58" cy="52" rx="12" ry="6" fill="#9a4a2f" opacity="0.5"/>
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="scroll-hint" id="scrollHint">向 下 滑 动 · 牛 腱 转 身 ↓</div>
+                  </div>
+                </div>
+
+                <!-- 第二屏：品牌矩阵（按重要程度） -->
+                <div class="brand-panel">
+                  <div class="panel-title">博 研 御 膳 · 品 牌 矩 阵</div>
+                  <div class="panel-rule"></div>
+                  <div class="brand-grid">
+                    <div class="brand-card hero-brand">
+                      <div class="bc-head"><span class="bc-name">卤智深</span><span class="bc-badge">王牌直营</span></div>
+                      <div class="bc-meta">街边店 · 直营 4 家<br>公司招牌品牌，老卤五香味熟食</div>
+                    </div>
+                    <div class="brand-card">
+                      <div class="bc-head"><span class="bc-name">卤味有约</span><span class="bc-badge">加盟</span></div>
+                      <div class="bc-meta">商超店 · 加盟 5 家<br>新品牌，进驻商超渠道</div>
+                    </div>
+                    <div class="brand-card">
+                      <div class="bc-head"><span class="bc-name">天牛哥</span><span class="bc-badge">加盟</span></div>
+                      <div class="bc-meta">街边店 · 加盟 3 家<br>新品牌，街边零售业态</div>
+                    </div>
+                    <div class="brand-card">
+                      <div class="bc-head"><span class="bc-name">吉食卤</span><span class="bc-badge">合作品牌</span></div>
+                      <div class="bc-meta">商超店 · 加盟 30 家<br>合作品牌，加盟规模最大</div>
+                    </div>
+                  </div>
+                  <div class="brand-stats">
+                    <span><b>42</b> 家门店覆盖陕西</span>
+                    <span><b>11</b> 家批发档口（欣桥/方欣/胡家庙）</span>
+                    <span>西安草滩<b>自有工厂</b></span>
+                    <span>市内冷链车 · 外地物流</span>
+                  </div>
+                  <div class="quick-replies" id="quickReplies">
+                    <button class="quick-reply-btn" type="button">你们有几个品牌？</button>
+                    <button class="quick-reply-btn" type="button">精品猪头肉多少钱一斤？</button>
+                    <button class="quick-reply-btn" type="button">门店营业时间是几点到几点？</button>
+                    <button class="quick-reply-btn" type="button">批发怎么合作？</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 对话区 -->
+            <div class="chat-history" id="chatHistory"><!-- 消息动态插入 --></div>
+
+            <!-- 输入区 -->
+            <div class="chat-input-container">
+                <div class="input-group">
+                    <textarea class="chat-input" id="chatInput" rows="1" spellcheck="false"
+                        placeholder="输入您的问题…"
+                        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,140)+'px'"></textarea>
+                    <button class="send-btn" id="sendBtn" type="button">发送</button>
+                </div>
+                <div class="input-hint">Enter 发送 · Shift + Enter 换行</div>
+            </div>
+
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="loading-text">正 在 检 索</div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        /* ============================================================
+           功能与后端接口保持与课程版完全一致（10 项能力逐条保留，见 DESIGN-SPEC §5）
+           仅改动：新增欢迎态切换、移除三个“开发中”假按钮、主题类名 light/dark -> night
+           ============================================================ */
+        let currentSessionId = null;      // 当前会话 ID
+        let isResponseInProgress = false; // 是否正在响应（防重复提交）
+        let socket = null;                // WebSocket 连接
+
+        const chatHistory = document.getElementById('chatHistory');
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const sourceFilter = document.getElementById('sourceFilter');
+        const historyList = document.getElementById('historyList');
+        const sessionInfo = document.getElementById('sessionInfo');
+        const newSessionBtn = document.getElementById('newSessionBtn');
+        const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const themeToggle = document.getElementById('themeToggle');
+        const searchBox = document.getElementById('searchBox');
+        const welcome = document.getElementById('welcome');
+        const quickReplies = document.getElementById('quickReplies');
+        const quickReplyBtns = quickReplies.querySelectorAll('.quick-reply-btn');
+
+        const API_BASE_URL = '';
+
+        /* ── 酱牛腱：欢迎页下滑时绕 Y 轴旋转 0→-90°，露出横截面；
+              同时首屏文案淡出。旋转进度取第一屏（一个视口高）的滚动比例 ── */
+        const heroScroll = document.getElementById('heroScroll');
+        const beef3d = document.getElementById('beef3d');
+        const beefFront = beef3d.querySelector('.beef-front');
+        const beefCut = beef3d.querySelector('.beef-cut');
+        const heroCaption = document.getElementById('heroCaption');
+        const scrollHint = document.getElementById('scrollHint');
+        /* 端面位置按实测尺寸计算，适配响应式缩放 */
+        function layoutBeefFaces() {
+            const w = beef3d.offsetWidth, h = beef3d.offsetHeight;
+            beefFront.style.transform = `translateZ(${h * 0.44}px)`;
+            beefCut.style.transform = `rotateY(90deg) translateZ(${w / 2}px)`;
+        }
+        function onHeroScroll() {
+            const vh = heroScroll.clientHeight || 1;
+            const p = Math.min(1, Math.max(0, heroScroll.scrollTop / vh));
+            beef3d.style.transform = `rotateY(${-90 * p}deg)`;
+            heroCaption.style.opacity = String(Math.max(0, 1 - p * 1.6));
+            scrollHint.style.opacity = String(Math.max(0, 1 - p * 2.2));
+        }
+        heroScroll.addEventListener('scroll', onHeroScroll, { passive: true });
+        window.addEventListener('resize', layoutBeefFaces);
+
+        /* ── 欢迎态 / 对话态 切换 ── */
+        function showWelcome() {
+            welcome.style.display = 'flex';
+            heroScroll.scrollTop = 0;
+            layoutBeefFaces();
+            onHeroScroll();
+            chatHistory.classList.remove('active');
+        }
+        function hideWelcome() {
+            welcome.style.display = 'none';
+            chatHistory.classList.add('active');
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            // 主题：localStorage 记忆；类名为 night（旧版是 dark-mode）
+            if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('night');
+            updateThemeLabel();
+
+            // ⚠️ 先挂事件监听, 再做网络初始化:
+            // 初始化含两次 await 网络请求, 监听器若放在其后, 用户在这段空窗期点击发送会毫无反应.
+            sendBtn.addEventListener('click', sendMessage);
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+            newSessionBtn.addEventListener('click', createNewSession);
+            clearHistoryBtn.addEventListener('click', clearHistory);
+            themeToggle.addEventListener('click', toggleTheme);
+            searchBox.addEventListener('input', searchHistory);
+
+            quickReplyBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    chatInput.value = btn.textContent;
+                    sendMessage();
+                });
+            });
+
+            await createNewSession();
+            await loadSources();
+        });
+
+        function updateThemeLabel() {
+            themeToggle.textContent = document.body.classList.contains('night') ? '日间' : '夜间';
+        }
+        function toggleTheme() {
+            const isNight = document.body.classList.toggle('night');
+            localStorage.setItem('darkMode', isNight);
+            updateThemeLabel();
+        }
+
+        /* 会话记录搜索：前端过滤侧栏条目 */
+        function searchHistory() {
+            const term = searchBox.value.trim().toLowerCase();
+            historyList.querySelectorAll('.history-item').forEach(item => {
+                const q = item.querySelector('.history-question').textContent.toLowerCase();
+                const a = item.querySelector('.history-answer').textContent.toLowerCase();
+                item.style.display = (q.includes(term) || a.includes(term)) ? '' : 'none';
+            });
+        }
+
+        /* 创建会话 */
+        async function createNewSession() {
+            showLoading();
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/create_session`, { method: 'POST' });
+                if (!response.ok) throw new Error('创建会话失败');
+                const data = await response.json();
+                currentSessionId = data.session_id;
+                sessionInfo.textContent = `会话 ${currentSessionId.slice(0, 8)}…`;
+                clearChatHistory();       // 回到欢迎态
+                await loadHistory();
+            } catch (error) {
+                console.error('创建会话错误:', error);
+                alert('创建会话失败，请刷新页面重试');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        /* 知识分类下拉：/api/sources */
+        async function loadSources() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/sources`);
+                if (!response.ok) throw new Error('获取知识分类失败');
+                const data = await response.json();
+                sourceFilter.innerHTML = '<option value="">全部</option>';
+                data.sources.forEach(source => {
+                    const option = document.createElement('option');
+                    option.value = source;
+                    option.textContent = source;
+                    sourceFilter.appendChild(option);
+                });
+            } catch (error) {
+                console.error('加载知识分类错误:', error);
+            }
+        }
+
+        /* 历史记录：/api/history/{sid} */
+        async function loadHistory() {
+            if (!currentSessionId) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/history/${currentSessionId}`);
+                if (!response.ok) throw new Error('获取历史记录失败');
+                const data = await response.json();
+
+                historyList.innerHTML = '';
+                const sessionItem = document.createElement('div');
+                sessionItem.className = 'history-item';
+                sessionItem.innerHTML = `
+                    <div class="history-question">会话 ${currentSessionId.slice(0, 8)}…</div>
+                    <div class="history-answer">共 ${data.history.length} 轮对话</div>
+                `;
+                sessionItem.addEventListener('click', () => {
+                    if (data.history.length) hideWelcome();   // 有内容才切到对话态
+                    chatHistory.innerHTML = '';
+                    data.history.forEach(item => {
+                        addMessage('user', item.question);
+                        addMessage('system', item.answer);
+                    });
+                    if (!data.history.length) showWelcome();
+                    scrollToBottom();
+                });
+                historyList.appendChild(sessionItem);
+            } catch (error) {
+                console.error('加载历史记录错误:', error);
+            }
+        }
+
+        /* 清空历史：DELETE */
+        async function clearHistory() {
+            if (!currentSessionId) return;
+            if (!confirm('确定要清除当前会话的全部记录吗？')) return;
+            showLoading();
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/history/${currentSessionId}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('清除历史记录失败');
+                historyList.innerHTML = '';
+                clearChatHistory();
+            } catch (error) {
+                console.error('清除历史记录错误:', error);
+                alert('清除历史记录失败');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        /* 重置为欢迎态 */
+        function clearChatHistory() {
+            chatHistory.innerHTML = '';
+            showWelcome();
+        }
+
+        function showLoading() { loadingOverlay.style.visibility = 'visible'; }
+        function hideLoading() { loadingOverlay.style.visibility = 'hidden'; }
+
+        /* 发送消息 */
+        async function sendMessage() {
+            const query = chatInput.value.trim();
+            const filter = sourceFilter.value;
+            if (!query || isResponseInProgress) return;
+
+            chatInput.value = '';
+            chatInput.style.height = '44px';
+
+            hideWelcome();
+            addMessage('user', query);
+            isResponseInProgress = true;
+
+            const pending = document.createElement('div');
+            pending.className = 'pending-line';
+            pending.textContent = '正在检索知识库…';
+            chatHistory.appendChild(pending);
+            scrollToBottom();
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, source_filter: filter, session_id: currentSessionId })
+                });
+                if (!response.ok) throw new Error('查询失败');
+                const data = await response.json();
+
+                if (pending.parentNode) chatHistory.removeChild(pending);
+
+                if (data.is_streaming) {
+                    // 流式：先建空的答句容器，token 到达后逐段填充
+                    const messageElement = document.createElement('div');
+                    messageElement.className = 'message system-message';
+                    messageElement.innerHTML = `<div class="message-header"><span class="marker">答</span>卤智深助手</div>`;
+                    const bodyElement = document.createElement('div');
+                    bodyElement.className = 'message-body';
+                    messageElement.appendChild(bodyElement);
+                    chatHistory.appendChild(messageElement);
+                    scrollToBottom();
+                    await handleStreamingResponse(query, filter, bodyElement);
+                } else {
+                    addMessage('system', data.answer);
+                }
+                await loadHistory();
+            } catch (error) {
+                console.error('发送消息错误:', error);
+                if (pending.parentNode) chatHistory.removeChild(pending);
+                addMessage('system', `抱歉，请求出错：${error.message}`);
+            } finally {
+                isResponseInProgress = false;
+                scrollToBottom();
+            }
+        }
+
+        /* 流式响应：WS /api/stream（消息 start / token / end / error） */
+        async function handleStreamingResponse(query, filter, contentElement) {
+            if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+            return new Promise((resolve, reject) => {
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProtocol}//${window.location.host}${API_BASE_URL}/api/stream`;
+                socket = new WebSocket(wsUrl);
+                let accumulatedContent = '';
+
+                socket.onopen = function () {
+                    socket.send(JSON.stringify({ query, source_filter: filter, session_id: currentSessionId }));
+                };
+                socket.onmessage = function (event) {
+                    const data = JSON.parse(event.data);
+                    switch (data.type) {
+                        case 'start': break;
+                        case 'token':
+                            accumulatedContent += data.token;
+                            contentElement.innerHTML = renderMarkdown(accumulatedContent);
+                            scrollToBottom();
+                            break;
+                        case 'end':
+                            socket.close();
+                            resolve();
+                            break;
+                        case 'error':
+                            contentElement.innerHTML += `<p>［错误：${data.error}］</p>`;
+                            socket.close();
+                            reject(new Error(data.error));
+                            break;
+                    }
+                };
+                socket.onerror = function (error) {
+                    contentElement.innerHTML += '<p>［连接错误］</p>';
+                    reject(error);
+                };
+                socket.onclose = function () { resolve(); };
+            });
+        }
+
+        /* 追加一条消息（问句右对齐 / 答句带朱红左竖线，均支持 Markdown） */
+        function addMessage(type, content) {
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${type === 'user' ? 'user-message' : 'system-message'}`;
+
+            const headerElement = document.createElement('div');
+            headerElement.className = 'message-header';
+            headerElement.innerHTML = type === 'user'
+                ? '<span class="marker">问</span>我'
+                : '<span class="marker">答</span>卤智深助手';
+
+            const bodyElement = document.createElement('div');
+            bodyElement.className = 'message-body';
+            bodyElement.innerHTML = renderMarkdown(content);
+
+            messageElement.appendChild(headerElement);
+            messageElement.appendChild(bodyElement);
+            chatHistory.appendChild(messageElement);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        /* Markdown 渲染 + 中文加粗修复
+           ─────────────────────────────────────────────────────────
+           问题：CommonMark 的强调规则要求 `**` 能"开启"加粗，条件是
+           左侧是空白/标点。中文写作常是「在**高于60℃**的条件下」——
+           `**` 两端都是汉字，判定失败，于是原文的星号直接露出来。
+           （实测 RAG 答案里大量出现，因为模型爱用中文加粗强调数字。）
+           修法：渲染前把成对的 **…** 先替换成 <strong>，再交给 marked；
+           marked 允许行内 HTML，会原样保留。
+           注意：这会同时处理代码块里的 **（本领域答案几乎不含代码块，可接受）。
+           ───────────────────────────────────────────────────────── */
+        function renderMarkdown(text) {
+            const fixed = String(text).replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, '<strong>$2</strong>');
+            return marked.parse(fixed);
+        }
+    </script>
+</body>
+</html>

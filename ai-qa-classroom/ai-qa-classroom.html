@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>DeliRAG 熟食问答小课堂</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: #fdf8ee;
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+    color: #333;
+  }
+  .poster {
+    width: 980px;
+    margin: 24px auto;
+    background: #fdf8ee;
+    border: 2px solid #f3e0b5;
+    border-radius: 18px;
+    padding: 38px 46px 34px;
+  }
+
+  /* ===== 头部 ===== */
+  .header { text-align: center; margin-bottom: 26px; }
+  .title {
+    font-size: 34px;
+    font-weight: 800;
+    color: #dd7f3c;
+    letter-spacing: 1px;
+  }
+  .subtitle {
+    margin-top: 14px;
+    font-size: 17px;
+    color: #8a7f6d;
+  }
+
+  /* ===== 步骤卡片 ===== */
+  .step {
+    background: #ffffff;
+    border-radius: 16px;
+    border: 2.5px solid;
+    padding: 20px 26px 18px 24px;
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+  }
+  .step .icon {
+    font-size: 40px;
+    line-height: 1.15;
+    flex: 0 0 52px;
+    text-align: center;
+  }
+  .step .body { flex: 1; }
+  .step h3 {
+    font-size: 21px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .step p {
+    font-size: 16.5px;
+    line-height: 1.65;
+    color: #3a3a3a;
+  }
+  .step .note {
+    margin-top: 7px;
+    font-size: 14px;
+    color: #a0937c;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    line-height: 1.55;
+  }
+  .step .note svg { flex: 0 0 auto; margin-top: 2px; }
+
+  .s1 { border-color: #f2b26b; } .s1 h3 { color: #e07f35; }
+  .s2 { border-color: #9fd8a4; } .s2 h3 { color: #3fa44c; }
+  .s3 { border-color: #8ec3e3; } .s3 h3 { color: #2f86bd; }
+  .s4 { border-color: #f0cf6e; } .s4 h3 { color: #d99e25; }
+  .s5 { border-color: #f5a6b0; } .s5 h3 { color: #e85d6f; }
+  .s6 { border-color: #c3b0e3; } .s6 h3 { color: #7d5fb8; }
+  .s7 { border-color: #8fd0d6; } .s7 h3 { color: #0e9aa7; }
+  .s8 { border-color: #f0a88f; } .s8 h3 { color: #d15c3e; }
+
+  /* ===== 箭头 ===== */
+  .arrow {
+    display: flex;
+    justify-content: center;
+    height: 30px;
+    align-items: center;
+  }
+  .arrow div {
+    width: 0; height: 0;
+    border-left: 11px solid transparent;
+    border-right: 11px solid transparent;
+    border-top: 15px solid;
+  }
+  .a1 div { border-top-color: #eda457; }
+  .a2 div { border-top-color: #74c27e; }
+  .a3 div { border-top-color: #67aad1; }
+  .a4 div { border-top-color: #e6c24f; }
+  .a5 div { border-top-color: #ef8b97; }
+  .a6 div { border-top-color: #a98fd6; }
+  .a7 div { border-top-color: #5cbcc7; }
+
+  /* ===== 底部总结 ===== */
+  .summary {
+    margin-top: 22px;
+    background: #fcefd4;
+    border-radius: 16px;
+    padding: 24px 30px 26px;
+    text-align: center;
+  }
+  .summary h4 {
+    font-size: 20px;
+    font-weight: 800;
+    color: #dd7f3c;
+    margin-bottom: 14px;
+  }
+  .summary p {
+    font-size: 17px;
+    line-height: 1.9;
+    color: #3a3a3a;
+  }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <div class="header">
+    <div class="title">🏫 DeliRAG 熟食问答小课堂</div>
+    <div class="subtitle">看看你问一句“酱鸭多少钱一斤”，里面的“小人儿们”是怎么忙起来的！</div>
+  </div>
+
+  <!-- 第 1 步 -->
+  <div class="step s1">
+    <div class="icon">🙋</div>
+    <div class="body">
+      <h3>第 1 步 · 你举手提问</h3>
+      <p>你把想问的问题说给小课堂听，话刚出口就有人接。</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：FastAPI 大门 + WebSocket 流式小喇叭（start / token / end，答案一个个字蹦出来）</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow a1"><div></div></div>
+
+  <!-- 第 2 步 -->
+  <div class="step s2">
+    <div class="icon">📒</div>
+    <div class="body">
+      <h3>第 2 步 · 先翻“熟客问答本”</h3>
+      <p>小管家先翻翻问答本：这问题以前答过吗？答过就原样秒回，不用惊动老师。</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：FAQ 热路径 = jieba 领域词 + BM25 + softmax；MySQL 存 59 条问答、Redis 缓存（deli: 前缀），相似度 ≥ 0.85 直接答，零 LLM 调用</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow a2"><div></div></div>
+
+  <!-- 第 3 步 -->
+  <div class="step s3">
+    <div class="icon">🧐</div>
+    <div class="body">
+      <h3>第 3 步 · 小管家辨一辨意图</h3>
+      <p>“你是来唠嗑的，还是来问正事的呀？”</p>
+      <p>唠嗑（你好 / 谢谢 / 你是谁）→ 陪你聊两句；产品、安全、加盟这些正事 → 往后走。</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：规则词表快判 → bert-base-chinese 熟食语料微调二分类；通用寒暄由 LLM 直答、不检索（BERT 判通用需 ≥ 0.85）</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow a3"><div></div></div>
+
+  <!-- 第 4 步 -->
+  <div class="step s4">
+    <div class="icon">🧭</div>
+    <div class="body">
+      <h3>第 4 步 · 选条找书的路子</h3>
+      <p>正事也分长相：短问题直接找；没看懂的先猜个答案；大问题拆开问；太细的拔高了问。</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：LLM 四选一——DIRECT 直接 / HYDE 假设文档 / SUBQUERY 拆 3 个子查询并行 / BACKTRACK 回溯成基础问题；短事实规则快判，异常兜底 DIRECT</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow a4"><div></div></div>
+
+  <!-- 第 5 步 -->
+  <div class="step s5">
+    <div class="icon">🔍</div>
+    <div class="body">
+      <h3>第 5 步 · 小猎犬混合找书</h3>
+      <p>小猎犬“嗖”地钻进图书馆，既按意思又按字眼，抱回 10 个小片段，再拼成完整篇章。</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：BGE-M3（dense 1024 + sparse）→ Milvus 2.5.4 混合检索 WeightedRanker(0.7, 0.3)；300 字子块命中 → 回升 1200 字父块（Small-to-Big 父子分块）</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow a5"><div></div></div>
+
+  <!-- 第 6 步 -->
+  <div class="step s6">
+    <div class="icon">⭐</div>
+    <div class="body">
+      <h3>第 6 步 · 精挑细选把好关</h3>
+      <p>小管家给每篇文章打“贴合分”，只留最对题的 3 篇，还定下“有几成把握”。</p>
+      <p>要是连 0.45 的把握都没有 → 绝不瞎猜，给你人工电话，问题还记进“待补充清单”。</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：bge-reranker-large（CrossEncoder）父块精排取 3、低于 0.05 丢弃；top1 ≥ 0.45 放行，&lt; 0.45 走固定话术（不调 LLM，食品安全零幻觉）+ 入 pending 待补充队列</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow a6"><div></div></div>
+
+  <!-- 第 7 步 -->
+  <div class="step s7">
+    <div class="icon">👨‍🏫</div>
+    <div class="body">
+      <h3>第 7 步 · 博学老师照书讲</h3>
+      <p>够把握！DeepSeek 老师盯着 3 篇文章，用大白话讲给你听，还附上出处，不添油加醋。</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：deepseek-chat 严格按知识库生成（温度 0，流式输出），末尾附 📚 参考来源；保质期 / 价格注明“以门店当日公示为准”</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow a7"><div></div></div>
+
+  <!-- 第 8 步 -->
+  <div class="step s8">
+    <div class="icon">🧠</div>
+    <div class="body">
+      <h3>第 8 步 · 老师的小本本</h3>
+      <p>不管最后怎么答的，老师都把这轮对话记在小本本上，下次见面还能接着聊 ~</p>
+      <div class="note">
+        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 3v18" stroke="#a0937c" stroke-width="2" stroke-linecap="round"/><path d="M6 4h13l-3.5 4L19 12H6z" fill="#a0937c"/></svg>
+        <span>大人看这里：MySQL conversations 表存会话历史，最近 5 轮问答带入提示词；FAQ / 寒暄 / RAG / 转人工四条出口都落库</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 总结 -->
+  <div class="summary">
+    <h4>一句话记住它 🌟</h4>
+    <p>
+      你提问 → 问答本秒答 → 辨意图 → 选路子 → 混合找 10 段 → 精排留 3 篇<br>
+      → 够把握 DeepSeek 照书讲（不够把握转人工）→ 还把你记在小本本上！
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

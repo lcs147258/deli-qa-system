@@ -1,0 +1,38 @@
+{
+  // 快捷任务：Ctrl+Shift+P → 输入 "Tasks: Run Task" → 选下面某一项
+  // 中间件容器(edurag-*)与教育版项目共用，用 docker start/stop 操作容器名，
+  // 不要在本目录 docker compose up（容器同名会冲突）。
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "① 启动中间件 (edurag-* 容器)",
+      "type": "shell",
+      "command": "docker start edurag-etcd edurag-minio edurag-milvus edurag-redis edurag-mysql",
+      "problemMatcher": []
+    },
+    {
+      "label": "② 查看中间件状态",
+      "type": "shell",
+      "command": "docker ps --filter name=edurag --format \"table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\"",
+      "problemMatcher": []
+    },
+    {
+      "label": "③ 停止中间件",
+      "type": "shell",
+      "command": "docker stop edurag-etcd edurag-minio edurag-milvus edurag-redis edurag-mysql",
+      "problemMatcher": []
+    },
+    {
+      "label": "④ 中间件日志 (Milvus)",
+      "type": "shell",
+      "command": "docker logs -f edurag-milvus",
+      "problemMatcher": []
+    },
+    {
+      "label": "⑤ 中间件日志 (MySQL)",
+      "type": "shell",
+      "command": "docker logs -f edurag-mysql",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  // 让 VS Code 默认用项目专用环境（不是系统 Python）
+  "python.defaultInterpreterPath": "E:\\venvs\\edurag\\Scripts\\python.exe",
+  "python.terminal.activateEnvironment": true,
+
+  // 从项目根目录导入模块（等价于命令行里的 PYTHONPATH=.）
+  "python.analysis.extraPaths": ["${workspaceFolder}"],
+  "python.autoComplete.extraPaths": ["${workspaceFolder}"],
+
+  // 终端默认工作目录
+  "terminal.integrated.cwd": "${workspaceFolder}",
+
+  // 隐藏这些目录，让文件树清爽（volumes 是 Docker 数据，别去点它）
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "volumes/**": true
+  },
+
+  "files.encoding": "utf8",
+  "editor.rulers": [100],
+
+  // 关掉不必要的提示噪音
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "none"
+  }
+}

@@ -1,0 +1,93 @@
+{
+  // VS Code 运行/调试配置（DeliRAG 重构版，LangGraph 分层架构）
+  // 用法：打开这个文件夹 → 按 F5，或点左侧「运行和调试」图标 → 选配置 → 点绿色三角
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // ★ 最常用：启动 Web 服务，然后浏览器打开 http://127.0.0.1:8082
+      "name": "① 启动 Web 服务 (端口 8082)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["backend.main:app", "--host", "127.0.0.1", "--port", "8082"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "E:\\venvs\\edurag\\Scripts\\python.exe",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "justMyCode": false
+    },
+    {
+      // 知识库 MCP 服务（Streamable HTTP，端口 8001）
+      "name": "② 知识库 MCP 服务 (端口 8001)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/backend/mcp/knowledge_base_server.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "E:\\venvs\\edurag\\Scripts\\python.exe",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "justMyCode": false
+    },
+    {
+      // 把 data/*_data/ 下的文档切分、向量化、写入 Milvus（幂等，可重复跑）
+      "name": "③ 文档入库（全量，含 Contextual RAG）",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/build_knowledge_base.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "E:\\venvs\\edurag\\Scripts\\python.exe",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "justMyCode": false
+    },
+    {
+      // 重建 Milvus knowledge_domain 集合（会先备份并删除旧集合，谨慎使用）
+      "name": "④ 重建 Milvus 集合 (--force)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/init_milvus.py",
+      "args": ["--force"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "E:\\venvs\\edurag\\Scripts\\python.exe",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "justMyCode": false
+    },
+    {
+      // MySQL 建库建表 + 幂等导入 FAQ
+      "name": "⑤ 初始化 MySQL 与 FAQ 数据",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/init_faq_data.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "E:\\venvs\\edurag\\Scripts\\python.exe",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "justMyCode": false
+    },
+    {
+      // 熟食查询分类器重训
+      "name": "⑥ 重训查询分类器",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/train_classifier.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "E:\\venvs\\edurag\\Scripts\\python.exe",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "justMyCode": false
+    },
+    {
+      // 环境自检：依赖、GPU、中间件、模型文件
+      "name": "⑦ 环境自检",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/verify_env.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "E:\\venvs\\edurag\\Scripts\\python.exe",
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
+      "justMyCode": false
+    }
+  ]
+}

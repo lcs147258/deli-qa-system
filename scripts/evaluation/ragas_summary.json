@@ -1,0 +1,15 @@
+{
+  "all_15": {
+    "faithfulness": 0.7303,
+    "answer_relevancy": 0.6453,
+    "context_precision": 0.6553,
+    "context_recall": 0.678
+  },
+  "with_context_13": {
+    "faithfulness": 0.8427,
+    "answer_relevancy": 0.7446,
+    "context_precision": 0.6792,
+    "context_recall": 0.7569
+  },
+  "note": "两轮运行按题合并：首轮值优先，NaN 以次轮补齐；两轮均 NaN(转人工无事实陈述)记0。评估器 qwen3.7-plus(reasoning) 作 judge 存在陈述抽取不稳定，故以合并值为基线。"
+}
