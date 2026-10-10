@@ -1,77 +1,47 @@
-# EduRAG 项目中间件编排文件
+# DeliRAG 第二版（pgvector 轻量化）中间件编排
 # 启动: docker compose up -d        查看状态: docker compose ps
-# 看日志: docker compose logs -f milvus     停止: docker compose stop
+# 看日志: docker compose logs -f paradedb     停止: docker compose stop
 #
-# 端口分配说明:
-#   Milvus  19530 (gRPC，Python 客户端连这个) / 9091 (健康检查)
-#   Redis   6380  → 容器内 6379  (密码 1234)  ※ 6379 被 agent-redis-1 占用
-#   MySQL   3307  → 容器内 3306  ※ 本机 3306 已被原生 MySQL80 服务占用，故映射到 3307
-#   MinIO   9000 (API) / 9001 (控制台，浏览器可开 http://localhost:9001)
+# 第二版架构（容器 3 个，可跑在 4GB 内存服务器）：
+#   ParadeDB 5434  PostgreSQL 17 + pgvector(dense/HNSW) + pg_search(Lindera BM25)
+#                  一个容器替代旧版 Milvus + etcd + MinIO 三件套，双路召回+RRF 全在 SQL 内
+#   Redis    6380  → 容器内 6379  (密码 1234)  ※ 6379 被 agent-redis-1 占用
+#   MySQL    3307  → 容器内 3306  ※ 本机 3306 已被原生 MySQL80 服务占用
+#
+# 本机注意：etcd/minio/milvus 的 edurag-* 容器与教育版项目共用，故本文件不再定义它们；
+# 教育版需要时在教育版项目目录自行 docker start，互不影响。
 
 services:
-  etcd:
-    container_name: edurag-etcd
-    restart: unless-stopped          # Docker 重启后自动拉起，避免"服务莫名连不上"
-    image: quay.io/coreos/etcd:v3.5.16
+  paradedb:
+    container_name: edurag-paradedb
+    restart: unless-stopped          # Docker 重启后自动拉起
+    # 版本锁定策略：x.y.z-pgNN，禁 latest（ParadeDB 迭代快，pg_search SQL 语法跨小版本有变）
+    # 0.25.11 = 稳定线第 11 个补丁版；PG17 主流稳定；镜像多架构(amd64/arm64)
+    image: paradedb/paradedb:0.25.11-pg17
+    # 4GB 小内存调优：shared_buffers 128MB、单查询 work_mem 4MB、规划器缓存假设 384MB
+    command:
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - max_connections=60
     environment:
-      - ETCD_AUTO_COMPACTION_MODE=revision
-      - ETCD_AUTO_COMPACTION_RETENTION=1000
-      - ETCD_QUOTA_BACKEND_BYTES=4294967296
-      - ETCD_SNAPSHOT_COUNT=50000
-    volumes:
-      - ./volumes/etcd:/etcd
-    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
-    healthcheck:
-      test: ["CMD", "etcdctl", "endpoint", "health"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    networks: [edurag]
-
-  minio:
-    container_name: edurag-minio
-    restart: unless-stopped          # Docker 重启后自动拉起，避免"服务莫名连不上"
-    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
-    environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      POSTGRES_USER: deli
+      POSTGRES_PASSWORD: delipg123
+      POSTGRES_DB: deli_qa
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      # 宿主 5434：本机 5432 被 fitagent 的 pgvector 占用，严格隔离
+      - "5434:5432"
     volumes:
-      - ./volumes/minio:/minio_data
-    command: minio server /minio_data --console-address ":9001"
+      - ./volumes/pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    networks: [edurag]
-
-  milvus:
-    container_name: edurag-milvus
-    restart: unless-stopped          # Docker 重启后自动拉起，避免"服务莫名连不上"
-    image: milvusdb/milvus:v2.5.4
-    command: ["milvus", "run", "standalone"]
-    security_opt:
-      - seccomp:unconfined
-    environment:
-      ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: minio:9000
-    volumes:
-      - ./volumes/milvus:/var/lib/milvus
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
-      interval: 30s
-      start_period: 90s
-      timeout: 20s
-      retries: 3
-    ports:
-      - "19530:19530"
-      - "9091:9091"
-    depends_on:
-      - etcd
-      - minio
+      test: ["CMD-SHELL", "pg_isready -U deli -d deli_qa"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks: [edurag]
 
   redis:
@@ -95,7 +65,12 @@ services:
     container_name: edurag-mysql
     restart: unless-stopped          # Docker 重启后自动拉起，避免"服务莫名连不上"
     image: mysql:8.0.36
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    # 4GB 小内存：InnoDB 缓冲池压到 128MB（docker run 后建议宿主再加 2GB swap）
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=128M
+      --max-connections=60
     environment:
       MYSQL_ROOT_PASSWORD: "123456"
       MYSQL_DATABASE: subjects_kg

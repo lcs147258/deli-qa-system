@@ -1,7 +1,8 @@
 # scripts/build_knowledge_base.py
-# DeliRAG 知识库批量入库：
+# DeliRAG 知识库批量入库（第二版 pgvector）：
 #   扫描 data/{course}_data/ 五类目录 -> 加载（含 OCR）-> 父子切分（父1200/子300）
-#   -> 可选 Contextual RAG -> BGE-M3 双向量编码子块（冗余携带父块全文）-> 先删后写 Milvus。
+#   -> 可选 Contextual RAG -> embedding 编码子块（本地 bge-small-zh / SF bge-m3）
+#   -> 先删后写 PostgreSQL（向量 HNSW + 文本 Lindera BM25）。
 #   检索时子块命中 -> 父块回升（Small-to-Big）-> 父块 rerank。
 # 物理隔离：唯一扫描根是 data/，docs/（访谈提记、内部配方）永不入库。
 #
@@ -19,8 +20,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from backend.config import get_settings
+from backend.core.embeddings import get_embedder
 from backend.core.knowledge_base import (
-    BGEMEmbedder,
     DocumentChunk,
     KnowledgeBaseClient,
 )
@@ -100,12 +101,12 @@ async def add_context(chunks, docs, concurrency=MAX_CONTEXT_CONCURRENCY):
 
 
 def embed_and_build(chunks, course_id, document_id, tenant_id):
-    embedder = BGEMEmbedder.get_instance()
+    embedder = get_embedder()
     texts = [c.page_content for c in chunks]
-    dense_vecs, sparse_vecs = embedder.encode(texts, batch_size=12)
+    vecs = embedder.encode_documents(texts)
 
     built = []
-    for i, (chunk, dense, sparse) in enumerate(zip(chunks, dense_vecs, sparse_vecs)):
+    for i, (chunk, vec) in enumerate(zip(chunks, vecs)):
         meta = chunk.metadata or {}
         headers = [meta[k] for k in ("h1", "h2", "h3", "h4") if meta.get(k)]
         if headers:
@@ -118,8 +119,7 @@ def embed_and_build(chunks, course_id, document_id, tenant_id):
         built.append(DocumentChunk(
             id=chunk_id,
             content=chunk.page_content,
-            embedding=dense,
-            sparse_embedding=sparse,
+            embedding=vec,
             course_id=course_id,
             document_id=document_id,
             source_name=source_name[:256],

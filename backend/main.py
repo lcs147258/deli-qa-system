@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 STATIC_DIR = pathlib.Path(PROJECT_ROOT) / "static"
 
 app = FastAPI(title="DeliRAG 熟食智能问答系统",
-              description="FAQ 热路径 + 三分支 RAG（PRECISE/VAGUE/BROAD）")
+              description="FAQ 热路径 + pgvector/pg_search 双路召回四策略父子 RAG")
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,7 +50,7 @@ async def _on_startup():
     settings = get_settings()
     logger.info("app.startup",
                 port=settings.app_port,
-                collection=settings.milvus_collection,
+                kb_table=settings.pg_table,
                 tenant=settings.default_tenant_id)
 
     # 后台预热 FAQ 通道（MySQL/Redis 连接 + BM25 语料），

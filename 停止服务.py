@@ -10,8 +10,8 @@ DeliRAG 停止脚本
   按端口查出 Web 服务的进程，然后结束它。
 
 注意：本脚本只停【Web 服务】（端口 8082），不停中间件。
-      中间件（Milvus/MySQL/Redis）是 Docker 容器，会继续运行、数据保留。
-      要停中间件可执行：docker stop edurag-milvus edurag-mysql edurag-redis
+      中间件（ParadeDB/MySQL/Redis）是 Docker 容器，会继续运行、数据保留。
+      要停中间件可执行：docker stop edurag-paradedb edurag-mysql edurag-redis
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def main() -> int:
 
     line()
     print("[成功] Web 服务已停止。")
-    print("       中间件（Milvus/MySQL/Redis）仍在运行，数据保留。")
+    print("       中间件（ParadeDB/MySQL/Redis）仍在运行，数据保留。")
     line()
     return 0
 

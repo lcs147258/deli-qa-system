@@ -1,90 +1,169 @@
 # backend/core/knowledge_base.py
-# Milvus 知识库客户端 + BGE-M3 编码器（单集合 knowledge_domain，tenant 隔离）。
-# 迁移自 EduAgent 同构实现：HNSW + COSINE dense / SPARSE_INVERTED_INDEX + IP sparse，
-# WeightedRanker(0.7, 0.3) 融合。deli 改造：集合名/默认租户/模型路径走 Settings。
+# 第二版知识库客户端：PostgreSQL（ParadeDB 镜像 = pgvector + pg_search 单库）。
+#
+# 双路召回 + 可插拔融合（backend/core/fusion.py）：
+#   dense  路：pgvector HNSW + COSINE（embedding 由本地 bge-small-zh 或 SiliconFlow bge-m3 产出）
+#   sparse 路：pg_search BM25，Lindera(中文) 分词建索引；
+#              查询串在库内用同一分词器切原子词，boolean(should=>term[]) 做 bag-of-words，
+#              避免默认查询串被当成"相邻短语"（"冷藏 柜 温度"场景会漏召回）。
+#
+# 接口与第一版 Milvus 客户端保持同名（promote_to_parents / upsert_chunks / count 等），
+# 上层 reranker/入库脚本的数据契约不变：候选 = {content, score, metadata{...}}。
 
 import hashlib
-import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from pymilvus import AnnSearchRequest, MilvusClient, WeightedRanker
+import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
 
-from backend.config import PROJECT_ROOT, get_settings
+from backend.config import get_settings
+from backend.core.fusion import LaneHit, get_fusion
 from backend.core.logger import get_logger
 
 logger = get_logger(__name__)
 
+_CHUNK_FIELDS = [
+    "content", "source_name", "chunk_type", "course_id",
+    "document_id", "chunk_index", "parent_id", "parent_content",
+]
+# Lindera 会把标点切成 token，查询侧只保留含汉字/字母/数字的词
+_KEEP_TOKEN = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]")
+
 
 class KnowledgeBaseClient:
-    """Milvus 客户端单例：混合检索 + chunk 写入/删除。"""
+    """PostgreSQL/ParadeDB 客户端单例：混合检索 + chunk 写入/删除。"""
 
-    ANN_EF = 64   # HNSW 搜索候选集大小（精度/速度平衡点）
-
-    _client: Optional["MilvusClient"] = None
-    _loaded: bool = False
+    _conn: Optional["psycopg.Connection"] = None
 
     def __init__(self):
-        if KnowledgeBaseClient._client is None:
+        if KnowledgeBaseClient._conn is None or KnowledgeBaseClient._conn.closed:
             settings = get_settings()
-            uri = f"http://{settings.milvus_host}:{settings.milvus_port}"
-            KnowledgeBaseClient._client = MilvusClient(uri=uri)
-            logger.info("milvus.connected", uri=uri)
+            KnowledgeBaseClient._conn = psycopg.connect(
+                settings.pg_dsn, autocommit=True, row_factory=dict_row)
+            logger.info("pg.connected",
+                        host=settings.pg_host, port=settings.pg_port,
+                        db=settings.pg_database)
 
-        if not KnowledgeBaseClient._loaded:
-            try:
-                KnowledgeBaseClient._client.load_collection(get_settings().milvus_collection)
-            except Exception:
-                pass   # init_milvus.py 尚未运行时忽略
-            KnowledgeBaseClient._loaded = True
+    def _table(self) -> sql.Composed:
+        return sql.Identifier(get_settings().pg_table)
 
     # ── 检索 ─────────────────────────────────────────────────
 
-    def _hybrid_search(
-        self,
-        query_embedding: list[float],
-        query_sparse: dict,
-        top_k: int,
-        filters: Optional[str] = None,
-    ) -> list[dict]:
-        """Dense + Sparse 双路 AnnSearchRequest -> WeightedRanker 融合。"""
+    def _lindera_tokens(self, query_text: str) -> list[str]:
+        """查询串在库内走与 BM25 索引同一个 Lindera(中文) 分词器，保证词项对齐。"""
         try:
-            dense_req = AnnSearchRequest(
-                data=[query_embedding],
-                anns_field="embedding",
-                param={"metric_type": "COSINE", "params": {"ef": self.ANN_EF}},
-                limit=top_k,
-                expr=filters,
-            )
-            sparse_req = AnnSearchRequest(
-                data=[query_sparse],
-                anns_field="sparse_embedding",
-                param={"metric_type": "IP"},
-                limit=top_k,
-                expr=filters,
-            )
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "SELECT %s::pdb.lindera(chinese)::text[] AS toks",
+                    (query_text,))
+                toks = cur.fetchone()["toks"] or []
+            return [t for t in toks if t.strip() and _KEEP_TOKEN.search(t)]
+        except Exception as e:
+            logger.warning("knowledge_base.lindera_tokenize_failed",
+                           error=str(e)[:200])
+            return []
 
-            output_fields = [
-                "content", "source_name", "chunk_type",
-                "course_id", "document_id", "chunk_index",
-                "parent_id", "parent_content",
-            ]
+    def _dense_lane(self, query_embedding: list[float], tenant_id: str,
+                    course_id: Optional[str], limit: int) -> list[LaneHit]:
+        vec_str = "[" + ",".join(str(float(x)) for x in query_embedding) + "]"
+        query = sql.SQL(
+            "SELECT id, 1 - (embedding <=> %s::vector) AS dscore FROM {tbl} "
+            "WHERE tenant_id = %s {course} "
+            "ORDER BY embedding <=> %s::vector LIMIT %s"
+        ).format(
+            tbl=self._table(),
+            course=sql.SQL("AND course_id = %s") if course_id else sql.SQL(""),
+        )
+        params: list = [vec_str, tenant_id]
+        if course_id:
+            params.append(course_id)
+        params += [vec_str, limit]
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+            return [LaneHit(id=r["id"], rank=i + 1, score=float(r["dscore"]))
+                    for i, r in enumerate(cur.fetchall())]
 
-            results = self._client.hybrid_search(
-                collection_name=get_settings().milvus_collection,
-                reqs=[dense_req, sparse_req],
-                ranker=WeightedRanker(0.7, 0.3),
-                limit=top_k,
-                output_fields=output_fields,
-            )
+    def _sparse_lane(self, tokens: list[str], tenant_id: str,
+                     course_id: Optional[str], limit: int) -> list[LaneHit]:
+        if not tokens:
+            return []
+        # 每个词项一个占位符，强制走 paradedb.term() 精确词项；should=OR 即 bag-of-words
+        term_sql = sql.SQL(", ").join(
+            sql.SQL("paradedb.term('content', {})").format(sql.Placeholder())
+            for _ in tokens)
+        query = sql.SQL(
+            "SELECT id, paradedb.score(id) AS bscore FROM {tbl} "
+            "WHERE content @@@ paradedb.boolean(should => ARRAY[{terms}]) "
+            "AND tenant_id = %s {course} "
+            "ORDER BY paradedb.score(id) DESC LIMIT %s"
+        ).format(
+            tbl=self._table(),
+            terms=term_sql,
+            course=sql.SQL("AND course_id = %s") if course_id else sql.SQL(""),
+        )
+        params: list = list(tokens) + [tenant_id]
+        if course_id:
+            params.append(course_id)
+        params.append(limit)
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+            return [LaneHit(id=r["id"], rank=i + 1, score=float(r["bscore"]))
+                    for i, r in enumerate(cur.fetchall())]
+
+    def hybrid_search(
+        self,
+        query_text: str,
+        query_embedding: Optional[list[float]],
+        top_k: int,
+        tenant_id: str,
+        course_id: Optional[str] = None,
+    ) -> list[dict]:
+        """dense + sparse 双路召回 -> 可插拔融合 -> 回表取子块。
+
+        query_embedding 为 None（在线 embedding 故障）时退化为纯 BM25；
+        BM25 无有效词项时退化为纯向量；两者皆空返回 []。
+        """
+        try:
+            limit = get_settings().recall_candidate_limit
+
+            dense_hits = (
+                self._dense_lane(query_embedding, tenant_id, course_id, limit)
+                if query_embedding else [])
+            tokens = self._lindera_tokens(query_text)
+            sparse_hits = (
+                self._sparse_lane(tokens, tenant_id, course_id, limit)
+                if tokens else [])
+
+            if not dense_hits and not sparse_hits:
+                logger.info("knowledge_base.hybrid_search_empty",
+                            query_preview=query_text[:50])
+                return []
+
+            fused = get_fusion().fuse(dense_hits, sparse_hits, top_k)
+            ids = [cid for cid, _ in fused]
+            score_map = dict(fused)
+
+            fields = sql.SQL(", ").join(
+                [sql.Identifier("id")] + list(map(sql.Identifier, _CHUNK_FIELDS)))
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("SELECT {fields} FROM {tbl} WHERE id = ANY(%s)")
+                    .format(fields=fields, tbl=self._table()),
+                    (ids,))
+                rows = {r["id"]: r for r in cur.fetchall()}
 
             candidates = []
-            for hit in results[0]:
-                entity = hit["entity"]
+            for cid in ids:
+                entity = rows.get(cid)
+                if not entity:
+                    continue
                 candidates.append({
                     "content": entity.get("content") or "",
-                    "score": hit.get("distance") or 0.0,
+                    "score": score_map[cid],
                     "metadata": {
                         "source_name": entity.get("source_name") or "",
                         "chunk_type": entity.get("chunk_type") or "text",
@@ -95,23 +174,13 @@ class KnowledgeBaseClient:
                         "parent_content": entity.get("parent_content") or "",
                     },
                 })
-
-            logger.info("knowledge_base.hybrid_search_done", candidates=len(candidates))
+            logger.info("knowledge_base.hybrid_search_done",
+                        dense=len(dense_hits), sparse=len(sparse_hits),
+                        tokens=tokens, candidates=len(candidates))
             return candidates
-
         except Exception as e:
-            logger.error("knowledge_base.hybrid_search_failed", error=str(e))
+            logger.error("knowledge_base.hybrid_search_failed", error=str(e)[:300])
             return []
-
-    @staticmethod
-    def _build_filter(tenant_id: str, course_id: Optional[str] = None) -> str:
-        """拼 Milvus bool 表达式；对 tenant_id / course_id 转义防注入。"""
-        safe_tenant = tenant_id.replace('"', '\\"')
-        expr = f'tenant_id == "{safe_tenant}"'
-        if course_id:
-            safe_course = course_id.replace('"', '\\"')
-            expr += f' and course_id == "{safe_course}"'
-        return expr
 
     # ── 父子块回升（Small-to-Big）────────────────────────────
 
@@ -152,48 +221,62 @@ class KnowledgeBaseClient:
     # ── 写入 ─────────────────────────────────────────────────
 
     def upsert_chunks(self, chunks: list) -> int:
-        """批量 upsert 文档块（主键存在则更新）。"""
+        """批量 upsert 文档子块（主键冲突则更新），单条多值 INSERT 原子提交。"""
         if not chunks:
             return 0
-        data = [{
-            "id": c.id,
-            "embedding": c.embedding,
-            "sparse_embedding": c.sparse_embedding,
-            "content": c.content[:4096],
-            "parent_id": c.parent_id[:128],
-            "parent_content": (c.parent_content or c.content)[:65000],
-            "chunk_index": c.chunk_index,
-            "document_id": c.document_id,
-            "course_id": c.course_id,
-            "tenant_id": c.tenant_id,
-            "source_name": c.source_name,
-            "chunk_type": c.chunk_type,
-            "version": c.version,
-            "updated_at": c.updated_at,
-        } for c in chunks]
-
-        self._client.upsert(collection_name=get_settings().milvus_collection, data=data)
+        cols = [
+            "id", "content", "embedding", "parent_id", "parent_content",
+            "chunk_index", "document_id", "course_id", "source_name",
+            "chunk_type", "version", "tenant_id", "updated_at",
+        ]
+        query = sql.SQL(
+            "INSERT INTO {tbl} ({fields}) VALUES ({placeholders}) "
+            "ON CONFLICT (id) DO UPDATE SET "
+            "content = EXCLUDED.content, embedding = EXCLUDED.embedding, "
+            "parent_id = EXCLUDED.parent_id, "
+            "parent_content = EXCLUDED.parent_content, "
+            "chunk_index = EXCLUDED.chunk_index, document_id = EXCLUDED.document_id, "
+            "course_id = EXCLUDED.course_id, source_name = EXCLUDED.source_name, "
+            "chunk_type = EXCLUDED.chunk_type, version = EXCLUDED.version, "
+            "tenant_id = EXCLUDED.tenant_id, updated_at = EXCLUDED.updated_at"
+        ).format(
+            tbl=self._table(),
+            fields=sql.SQL(", ").join(map(sql.Identifier, cols)),
+            placeholders=sql.SQL(", ").join(sql.Placeholder() * len(cols)),
+        )
+        rows = [(
+            c.id, c.content,
+            "[" + ",".join(str(float(x)) for x in c.embedding) + "]",
+            c.parent_id[:128], c.parent_content or c.content,
+            c.chunk_index, c.document_id, c.course_id, c.source_name,
+            c.chunk_type, c.version, c.tenant_id, c.updated_at,
+        ) for c in chunks]
+        with self._conn.cursor() as cur:
+            cur.executemany(query, rows, returning=False)
         logger.info("knowledge_base.chunks_upserted", count=len(chunks))
         return len(chunks)
 
     def delete_document_chunks(self, document_id: str) -> None:
         """删除指定文档的全部 chunk（重建时先删后插，幂等）。"""
-        safe_id = document_id.replace('"', '\\"')
-        self._client.delete(
-            collection_name=get_settings().milvus_collection,
-            filter=f'document_id == "{safe_id}"',
-        )
+        with self._conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("DELETE FROM {tbl} WHERE document_id = %s")
+                .format(tbl=self._table()),
+                (document_id,))
         logger.info("knowledge_base.document_deleted", document_id=document_id)
 
     def count(self, tenant_id: Optional[str] = None) -> int:
-        """集合当前行数（实时 query；get_collection_stats 对 growing segment 有延迟）。"""
+        """知识库当前行数（可按租户过滤）。"""
         try:
-            expr = (f'tenant_id == "{tenant_id}"' if tenant_id
-                    else 'tenant_id != ""')
-            rows = self._client.query(
-                collection_name=get_settings().milvus_collection,
-                filter=expr, output_fields=["id"], limit=16384)
-            return len(rows)
+            with self._conn.cursor() as cur:
+                if tenant_id:
+                    cur.execute(
+                        sql.SQL("SELECT count(*) FROM {tbl} WHERE tenant_id = %s")
+                        .format(tbl=self._table()), (tenant_id,))
+                else:
+                    cur.execute(
+                        sql.SQL("SELECT count(*) FROM {tbl}").format(tbl=self._table()))
+                return int(cur.fetchone()["count"])
         except Exception as e:
             logger.warning("knowledge_base.count_failed", error=str(e))
             return -1
@@ -205,90 +288,12 @@ class KnowledgeBaseClient:
         return hashlib.md5(raw.encode()).hexdigest()
 
 
-# ──────────────────────────────────────────────────────────────
-# BGE-M3 编码器（dense 1024 维 + sparse 词权，进程内单例）
-# ──────────────────────────────────────────────────────────────
-
-class BGEMEmbedder:
-    _instance: Optional["BGEMEmbedder"] = None
-
-    def __init__(self, model_path: str):
-        # 兼容补丁1：FlagEmbedding 1.3.x 引用 transformers 内部函数，保险兜底
-        import importlib.util as _ilu
-        from transformers.utils import import_utils as _tf_iu
-        if not hasattr(_tf_iu, "is_torch_fx_available"):
-            _tf_iu.is_torch_fx_available = (
-                lambda: _ilu.find_spec("torch.fx") is not None
-            )
-
-        # 兼容补丁2：部分 transformers 版本 XLMRobertaModel 不收 dtype 参数，
-        # FlagEmbedding 会传入，子类化丢弃它
-        from transformers.models.xlm_roberta import modeling_xlm_roberta as _xlm
-        _OriginalXLMRoberta = _xlm.XLMRobertaModel
-
-        class _PatchedXLMRobertaModel(_OriginalXLMRoberta):
-            def __init__(self, config, **kwargs):
-                kwargs.pop("dtype", None)
-                super().__init__(config, **kwargs)
-
-        _xlm.XLMRobertaModel = _PatchedXLMRobertaModel
-
-        import torch
-        from FlagEmbedding import BGEM3FlagModel
-
-        # BGE 权重必须走纯 ASCII 路径（sentencepiece C++ 层窄字符 API 读不了中文路径）
-        logger.info("bge_m3.loading", model_path=model_path)
-        _use_fp16 = torch.cuda.is_available()
-        self._model = BGEM3FlagModel(
-            model_name_or_path=model_path,
-            use_fp16=_use_fp16,
-        )
-        logger.info("bge_m3.loaded", use_fp16=_use_fp16)
-
-    @classmethod
-    def get_instance(cls) -> "BGEMEmbedder":
-        if cls._instance is None:
-            settings = get_settings()
-            model_path = settings.path_from_root(settings.bge_m3_model_path)
-            cls._instance = BGEMEmbedder(os.path.abspath(model_path))
-        return cls._instance
-
-    def encode(
-        self,
-        texts: list[str],
-        batch_size: int = 12,
-    ) -> tuple[list[list[float]], list[dict]]:
-        """批量编码 -> (dense 向量列表, sparse {token_id: weight} 列表)。"""
-        output = self._model.encode(
-            texts,
-            batch_size=batch_size,
-            max_length=8192,
-            return_dense=True,
-            return_sparse=True,
-            return_colbert_vecs=False,
-        )
-
-        dense_vecs = output["dense_vecs"].tolist()
-        # numpy.float16 -> Python float：Milvus 返回 numpy 标量，统一转原生 float
-        sparse_vecs = [
-            {int(k): float(v) for k, v in d.items()}
-            for d in output["lexical_weights"]
-        ]
-        return dense_vecs, sparse_vecs
-
-    def encode_query(self, text: str) -> tuple[list[float], dict]:
-        """单条查询编码（batch_size=1）。"""
-        dense_list, sparse_list = self.encode([text], batch_size=1)
-        return dense_list[0], sparse_list[0]
-
-
 @dataclass
 class DocumentChunk:
-    """写入 Milvus 的单个子块，字段与集合 Schema 一一对应（父子分块）。"""
+    """写入 kb_chunks 的单个子块，字段与表结构一一对应（父子分块）。"""
     id: str
-    content: str                       # 子块文本（参与向量编码/召回）
+    content: str                       # 子块文本（参与向量编码/BM25 召回）
     embedding: list[float]
-    sparse_embedding: dict
     course_id: str          # deli 五分类：product/safety/ops/franchise/supply
     document_id: str
     source_name: str

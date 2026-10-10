@@ -18,10 +18,13 @@ _ENV_FILE = os.path.join(PROJECT_ROOT, ".env.local")
 class Settings(BaseSettings):
     """配置模型：每个属性对应 .env.local 的一项，Pydantic 自动做类型校验。"""
 
-    # ── Milvus 向量库 ──
-    milvus_host: str = "localhost"
-    milvus_port: int = 19530
-    milvus_collection: str = "knowledge_domain"
+    # ── PostgreSQL / ParadeDB（第二版知识库：pgvector + pg_search 单库）──
+    pg_host: str = "127.0.0.1"
+    pg_port: int = 5434
+    pg_user: str = "deli"
+    pg_password: str = "delipg123"
+    pg_database: str = "deli_qa"
+    pg_table: str = "kb_chunks"
     default_tenant_id: str = "tenant_deli"
 
     # ── 大模型（DashScope OpenAI 兼容端点）──
@@ -45,10 +48,29 @@ class Settings(BaseSettings):
     redis_db: int = 0
 
     # ── 本地模型权重 ──
-    bge_m3_model_path: str = "E:/edurag_models/bge-m3"
+    # embedding 本地后端：bge-small-zh-v1.5（512 维 / 95MB，4GB 服务器可常驻 CPU）
+    embedding_local_model_path: str = "E:/edurag_models/bge-small-zh-v1.5"
     reranker_model_path: str = "E:/edurag_models/bge-reranker-large"
     bert_base_model_path: str = "E:/edurag_models/bert-base-chinese"
     finetuned_classifier_path: str = "models/classifier/bert_query_classifier"
+
+    # ── Embedding 双后端：local（本地小模型）| siliconflow（在线 bge-m3）──
+    # 注意：两模型向量维度/空间不同，切换后端必须重建知识库（init_pg.py --force + 入库）。
+    embedding_backend: str = "local"
+    embedding_sf_model: str = "BAAI/bge-m3"
+    embedding_dim: int = 512          # local=512；siliconflow bge-m3=1024
+    embedding_batch_size: int = 32
+
+    # ── Reranker 双后端：local（bge-reranker-large）| siliconflow（v2-m3 API）──
+    # 服务器默认 siliconflow：零内存占用，中文效果持平或更优；API 故障自动降级 RRF 序。
+    rerank_backend: str = "local"
+    rerank_sf_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_batch_size: int = 32
+
+    # ── SiliconFlow 在线接口（embedding/rerank 共用；免费额度 RPM 2000 起）──
+    sf_api_key: str = ""
+    sf_base_url: str = "https://api.siliconflow.cn/v1"
+    sf_timeout: float = 15.0
 
     # ── 检索参数 ──
     faq_bm25_threshold: float = 0.85
@@ -56,6 +78,14 @@ class Settings(BaseSettings):
     rerank_top_k: int = 3
     min_relevant_score: float = 0.05
     high_confidence_threshold: float = 0.45
+    # 双路召回：每路在 PG 内先取的候选池大小（RRF 融合后再截 recall_top_k）
+    recall_candidate_limit: int = 50
+
+    # ── 双路融合策略：rrf | weighted_rrf | combmnz（融合只定候选池，终答仍看 reranker）──
+    fusion_strategy: str = "rrf"
+    rrf_k: int = 60
+    fusion_dense_weight: float = 0.6
+    fusion_sparse_weight: float = 0.4
     # ── 父子分块（Parent-Child / Small-to-Big）──
     # 入库切子块（小粒度，向量精准命中），子块冗余携带 parent_content；
     # 检索时子块命中 -> 回升父块（大粒度，给 LLM 完整上下文）-> 父块 rerank。
@@ -125,6 +155,15 @@ class Settings(BaseSettings):
             "database": self.mysql_database,
             "charset": "utf8mb4",
         }
+
+    @property
+    def pg_dsn(self) -> str:
+        """psycopg 连接串（ParadeDB / pgvector 知识库库）。"""
+        return (
+            f"host={self.pg_host} port={self.pg_port} "
+            f"dbname={self.pg_database} user={self.pg_user} "
+            f"password={self.pg_password} connect_timeout=5"
+        )
 
 
 @lru_cache()

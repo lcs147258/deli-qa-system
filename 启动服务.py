@@ -8,7 +8,7 @@ DeliRAG 一键启动脚本
 
 它会自动：
   1. 检查端口是否被占用（占用就提示，不会盲目启动）
-  2. 检查中间件（Milvus/MySQL/Redis），没启动就帮你启动
+  2. 检查中间件（ParadeDB/MySQL/Redis），没启动就帮你启动
   3. 启动 Web 服务
 
 停止方式：
@@ -31,13 +31,13 @@ from pathlib import Path
 # ─────────────────────── 配置 ───────────────────────
 PROJECT_DIR = Path(__file__).resolve().parent          # 本脚本所在目录 = 项目根目录
 VENV_PYTHON = Path(r"E:\venvs\edurag\Scripts\python.exe")
-# 中间件容器与教育版项目共用（edurag-*，由 docker-compose.yml 定义）
+# 第二版中间件容器（edurag-*，由 docker-compose.yml 定义）
+#   paradedb = pgvector + pg_search 单容器（替代旧版 etcd/minio/milvus 三件套）
 PORT = 8082
 HOST = "127.0.0.1"
-WAIT_AFTER_MIDDLEWARE = 35      # 启动中间件后等待的秒数
+WAIT_AFTER_MIDDLEWARE = 20      # 启动中间件后等待的秒数（PG 就绪比 Milvus 快）
 MIDDLEWARE_CONTAINERS = [
-    "edurag-etcd", "edurag-minio", "edurag-milvus",
-    "edurag-redis", "edurag-mysql",
+    "edurag-paradedb", "edurag-redis", "edurag-mysql",
 ]
 
 
@@ -53,7 +53,7 @@ def port_in_use(port: int) -> bool:
 
 
 def middleware_running() -> bool:
-    """检查 DeliRAG 使用的中间件容器是否在运行（与教育版共用同一套容器）
+    """检查 DeliRAG 使用的中间件容器是否在运行
 
     注意：容器名是 ASCII，但 Windows 上子进程输出可能是 GBK，
           所以统一用 errors='replace' 兜底，避免解码异常。
@@ -62,13 +62,13 @@ def middleware_running() -> bool:
         r = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
                            capture_output=True, timeout=15)
         out = r.stdout.decode("utf-8", errors="replace")
-        return "edurag-mysql" in out
+        return "edurag-paradedb" in out and "edurag-mysql" in out
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 
 
 def start_middleware() -> bool:
-    """拉起与教育版共用的 edurag-* 容器。
+    """拉起 edurag-* 中间件容器。
 
     容器已由 docker compose 创建过（同名），直接 docker start 最可靠，
     避免在另一个 compose 项目里 up 触发"容器名冲突"。

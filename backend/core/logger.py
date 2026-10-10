@@ -79,7 +79,7 @@ def configure_logging() -> None:
     root.addHandler(file_handler)
 
     for noisy in ("httpx", "httpcore", "urllib3", "sentence_transformers",
-                  "FlagEmbedding", "transformers", "pymilvus"):
+                  "transformers", "psycopg"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

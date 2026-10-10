@@ -16,8 +16,8 @@ if "%PID%"=="" (
     echo [提示] 没有发现占用 8082 端口的进程，服务可能已经停止。
     echo.
     echo 提示：本脚本只停 Web 服务，不停中间件。
-    echo       中间件（Milvus/MySQL/Redis）仍在容器中运行、数据保留。
-    echo       要停中间件：docker stop edurag-milvus edurag-mysql edurag-redis edurag-etcd edurag-minio
+    echo       中间件（ParadeDB/MySQL/Redis）仍在容器中运行、数据保留。
+    echo       要停中间件：docker stop edurag-paradedb edurag-mysql edurag-redis
     echo.
     pause
     exit /b 0
@@ -33,7 +33,7 @@ if errorlevel 1 (
 ) else (
     echo.
     echo [成功] Web 服务已停止。
-    echo        中间件仍在运行（Milvus/MySQL/Redis），数据不受影响。
+    echo        中间件仍在运行（ParadeDB/MySQL/Redis），数据不受影响。
 )
 echo.
 pause

@@ -79,7 +79,6 @@ markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 marshmallow==3.26.2
 mdurl==0.1.2
-milvus-model==0.2.5
 mmh3==5.2.0
 modelscope==1.23.0
 mpmath==1.3.0
@@ -119,7 +118,7 @@ pydantic-settings==2.13.1
 pydantic_core==2.41.5
 Pygments==2.19.2
 PyJWT==2.11.0
-pymilvus==2.5.4
+psycopg[binary]==3.2.12
 PyMuPDF==1.23.16
 PyMuPDFb==1.23.9
 PyMySQL==1.1.1
@@ -192,5 +191,4 @@ xxhash==3.6.0
 yarl==1.23.0
 zipp==3.23.0
 zstandard==0.25.0
-FlagEmbedding==1.3.5
 peft==0.18.1

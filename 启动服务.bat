@@ -24,18 +24,18 @@ if not errorlevel 1 (
 )
 echo [1/3] 端口 8082 空闲，可以启动
 
-rem ---------- 2. 启动中间件（Milvus/MySQL/Redis，与教育版共用容器） ----------
-docker ps --format "{{.Names}}" 2>nul | findstr "edurag-mysql" >nul 2>&1
+rem ---------- 2. 启动中间件（ParadeDB/MySQL/Redis 三容器） ----------
+docker ps --format "{{.Names}}" 2>nul | findstr "edurag-paradedb" >nul 2>&1
 if errorlevel 1 (
     echo [2/3] 中间件未运行，正在启动 Docker 容器...
     echo       ^(若 Docker Desktop 没启动会第一次失败^)
-    docker start edurag-etcd edurag-minio edurag-milvus edurag-redis edurag-mysql
+    docker start edurag-paradedb edurag-redis edurag-mysql
     if errorlevel 1 (
         echo       容器不存在，改用 docker compose 创建...
         docker compose up -d
     )
-    echo       等待 35 秒让中间件就绪...
-    timeout /t 35 /nobreak >nul
+    echo       等待 20 秒让中间件就绪...
+    timeout /t 20 /nobreak >nul
 ) else (
     echo [2/3] 中间件已在运行
 )

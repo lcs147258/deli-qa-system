@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""DeliRAG 环境自检脚本（重构版）
-验证: Python 依赖 / GPU / 中间件(MySQL 3307 · Redis 6380 · Milvus 19530) /
-      模型文件 / 项目关键文件 / LLM 端点
+"""DeliRAG 环境自检脚本（第二版 pgvector 轻量化）
+验证: Python 依赖 / 中间件(ParadeDB 5434 · MySQL 3307 · Redis 6380) /
+      embedding 与 reranker 后端 / 模型文件 / 项目关键文件 / LLM 端点
 运行: E:\\venvs\\edurag\\Scripts\\python.exe verify_env.py
 """
 import os
@@ -28,7 +28,7 @@ from backend.config import get_settings
 s = get_settings()
 
 print("=" * 68)
-print("  DeliRAG 环境自检（四策略父子检索 RAG 流水线）")
+print("  DeliRAG 环境自检（第二版 pgvector 双路召回父子检索流水线）")
 print("=" * 68)
 
 print("\n【1】Python 与依赖包")
@@ -62,7 +62,6 @@ for _name, _fn in [
     ("torch", _torch),
     ("transformers", lambda: __import__("transformers").__version__),
     ("sentence-transformers", lambda: __import__("sentence_transformers").__version__),
-    ("FlagEmbedding", lambda: "ok"),
     # langchain 仅用于 ingest 切分基类 + RAGAS 离线评估；生产问答链路零 langchain/langgraph
     ("langchain-core", lambda: _v("langchain-core", "langchain_core")),
     ("langchain-text-splitters", lambda: _v("langchain-text-splitters", "langchain_text_splitters")),
@@ -75,7 +74,8 @@ for _name, _fn in [
     ("websockets", lambda: _v("websockets")),
     ("mcp", lambda: _v("mcp")),
     ("openai", lambda: __import__("openai").__version__),
-    ("pymilvus", lambda: __import__("pymilvus").__version__),
+    # 第二版知识库驱动：psycopg 3 连 ParadeDB（pgvector + pg_search）
+    ("psycopg", lambda: _v("psycopg")),
     ("pymysql", lambda: __import__("pymysql").__version__),
     ("redis", lambda: __import__("redis").__version__),
     ("jieba", lambda: __import__("jieba").__version__),
@@ -106,13 +106,13 @@ def _starlette_pin():
 
 check("starlette 版本约束", _starlette_pin)
 
-print("\n【2】GPU 实算")
+print("\n【2】GPU（第二版全链路 CPU 可跑，GPU 仅加分项，不作为失败项）")
 
 
 def _gpu_calc():
     import torch
     if not torch.cuda.is_available():
-        raise RuntimeError("CUDA 不可用")
+        return "CUDA 不可用，使用 CPU（bge-small-zh 95MB，4GB 服务器可常驻）"
     a = torch.randn(512, 512, device="cuda")
     b = (a @ a).sum().item()
     name = torch.cuda.get_device_name(0)
@@ -120,7 +120,8 @@ def _gpu_calc():
     return f"{name} | {mem:.1f}GB | 矩阵运算结果 {b:.1f}"
 
 
-check("GPU 矩阵运算", _gpu_calc)
+# 仅提示不计入失败统计（CPU 服务器为正式部署目标）
+print(f"[INFO] {_gpu_calc()}")
 
 print("\n【3】中间件连通性")
 
@@ -153,22 +154,44 @@ def _redis():
 check(f"Redis ({s.redis_port})", _redis)
 
 
-def _milvus():
-    from pymilvus import MilvusClient
-    c = MilvusClient(uri=f"http://{s.milvus_host}:{s.milvus_port}")
-    cols = c.list_collections()
-    if s.milvus_collection not in cols:
-        raise RuntimeError(f"集合 {s.milvus_collection} 不存在，"
-                           "先跑 python scripts/init_milvus.py --force")
-    rows = c.query(collection_name=s.milvus_collection,
-                   filter=f'tenant_id == "{s.default_tenant_id}"',
-                   output_fields=["id"], limit=1)
-    return f"集合={cols} | {s.milvus_collection} 可查询(样例{len(rows)}行)"
+def _pg():
+    import psycopg
+    with psycopg.connect(s.pg_dsn, connect_timeout=5) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT extname FROM pg_extension "
+                "WHERE extname IN ('vector', 'pg_search') ORDER BY extname")
+            exts = [r[0] for r in cur.fetchall()]
+            if "vector" not in exts or "pg_search" not in exts:
+                raise RuntimeError(f"扩展缺失：{exts}，先跑 python scripts/init_pg.py --force")
+            cur.execute(
+                "SELECT count(*) FROM " + s.pg_table +
+                " WHERE tenant_id = %s", (s.default_tenant_id,))
+            rows = cur.fetchone()[0]
+    return f"vector+pg_search 就绪 | {s.pg_table} {rows} 行"
 
 
-check(f"Milvus ({s.milvus_port}, 集合 {s.milvus_collection})", _milvus)
+check(f"ParadeDB/PostgreSQL ({s.pg_port}, 表 {s.pg_table})", _pg)
 
-print("\n【4】模型文件（BGE 系必须 ASCII 路径）")
+print("\n【4】后端配置与模型文件（BGE 系路径必须 ASCII）")
+
+check("embedding 后端配置", lambda: (
+    f"{s.embedding_backend} | model="
+    + (s.embedding_sf_model if s.embedding_backend == "siliconflow"
+       else s.embedding_local_model_path)
+    + f" | dim={s.embedding_dim}"))
+check("reranker 后端配置", lambda: (
+    f"{s.rerank_backend} | model="
+    + (s.rerank_sf_model if s.rerank_backend == "siliconflow"
+       else s.reranker_model_path)))
+def _sf_key():
+    if not s.sf_api_key:
+        raise RuntimeError("使用 siliconflow 后端但 SF_API_KEY 为空")
+    return "已配置"
+
+
+if s.embedding_backend == "siliconflow" or s.rerank_backend == "siliconflow":
+    check("SF_API_KEY 已配置", _sf_key)
 
 
 def _model_dir(path):
@@ -179,9 +202,12 @@ def _model_dir(path):
     return f"{total/1024/1024:.0f} MB"
 
 
-check("bge-m3", lambda p=s.path_from_root(s.bge_m3_model_path): _model_dir(p))
-check("bge-reranker-large",
-      lambda p=s.path_from_root(s.reranker_model_path): _model_dir(p))
+if s.embedding_backend == "local":
+    check("bge-small-zh-v1.5 (embedding)",
+          lambda p=s.path_from_root(s.embedding_local_model_path): _model_dir(p))
+if s.rerank_backend == "local":
+    check("bge-reranker-large (reranker)",
+          lambda p=s.path_from_root(s.reranker_model_path): _model_dir(p))
 check("bert-base-chinese (分类器底座)",
       lambda p=s.path_from_root(s.bert_base_model_path): _model_dir(p))
 check("熟食微调分类器 bert_query_classifier",
@@ -191,7 +217,7 @@ print("\n【5】项目关键文件")
 BASE = os.path.dirname(os.path.abspath(__file__))
 for f in [".env.local", "backend/main.py", "backend/agents/qa/service.py",
           "backend/core/strategy_selector.py",
-          "backend/mcp/knowledge_base_server.py", "scripts/init_milvus.py",
+          "backend/mcp/knowledge_base_server.py", "scripts/init_pg.py",
           "scripts/build_knowledge_base.py", "scripts/init_faq_data.py",
           "scripts/train_classifier.py", "docker-compose.yml",
           "static/index.html", "data/faq/deli_faq.csv"]:
